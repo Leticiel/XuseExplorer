@@ -1,0 +1,704 @@
+<Window x:Class="XuseExplorer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:XuseExplorer.ViewModels"
+        xmlns:conv="clr-namespace:XuseExplorer.Converters"
+        xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
+        Title="Xuse Explorer" 
+        Height="800" Width="1280"
+        MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        Background="{DynamicResource PrimaryBgBrush}"
+        AllowDrop="True"
+        Drop="Window_Drop"
+        DragOver="Window_DragOver">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="36"
+                      GlassFrameThickness="0"
+                      ResizeBorderThickness="6"
+                      CornerRadius="0"/>
+    </WindowChrome.WindowChrome>
+    
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Window.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:NullToVisibilityConverter x:Key="NullToVis"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVis"/>
+        <conv:TypeToColorConverter x:Key="TypeToColor"/>
+    </Window.Resources>
+
+    <Window.InputBindings>
+        <KeyBinding Key="O" Modifiers="Ctrl" Command="{Binding OpenCommand}"/>
+        <KeyBinding Key="E" Modifiers="Ctrl" Command="{Binding BatchExtractCommand}"/>
+        <KeyBinding Key="W" Modifiers="Ctrl" Command="{Binding CloseCommand}"/>
+        <KeyBinding Key="F" Modifiers="Ctrl" Command="{Binding FilterCommand}"/>
+        <KeyBinding Key="S" Modifiers="Ctrl" Command="{Binding SaveCommand}"/>
+        <KeyBinding Key="Return" Command="{Binding EditScriptEntryCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Ctrl" Command="{Binding UndoScriptEditCommand}"/>
+        <KeyBinding Key="Back" Command="{Binding GoBackCommand}"/>
+    </Window.InputBindings>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Custom Titlebar -->
+        <Grid Grid.Row="0" Background="{DynamicResource SecondaryBgBrush}"
+              MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- App Icon + Title -->
+            <TextBlock Grid.Column="0" Text="🗂" FontSize="16" VerticalAlignment="Center" Margin="10,0,6,0"/>
+            <TextBlock Grid.Column="1" Text="Xuse Explorer" 
+                       VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+
+            <!-- Minimize -->
+            <Button Grid.Column="2" Content="─" 
+                    Style="{DynamicResource CaptionButtonStyle}"
+                    Click="Minimize_Click"/>
+            <!-- Maximize / Restore -->
+            <Button Grid.Column="3" x:Name="MaxRestoreBtn" Content="☐" 
+                    Style="{DynamicResource CaptionButtonStyle}"
+                    Click="MaxRestore_Click"/>
+            <!-- Close -->
+            <Button Grid.Column="4" Content="✕" 
+                    Style="{DynamicResource CloseButtonStyle}"
+                    Click="Close_Click"/>
+        </Grid>
+
+        <!-- Menu Bar -->
+        <Menu Grid.Row="1">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open..." Command="{Binding OpenCommand}" InputGestureText="Ctrl+O">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📂" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Save" Command="{Binding SaveCommand}" InputGestureText="Ctrl+S">
+                    <MenuItem.Icon>
+                        <TextBlock Text="💾" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="_Close" Command="{Binding CloseCommand}" InputGestureText="Ctrl+W"/>
+                <Separator/>
+                <MenuItem Header="E_xit" Click="Exit_Click" InputGestureText="Alt+F4"/>
+            </MenuItem>
+            <MenuItem Header="_Extract">
+                <MenuItem Header="Extract _Selected" Command="{Binding ExtractSelectedCommand}">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📄" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Batch Extract Selected..." Command="{Binding BatchExtractCommand}" InputGestureText="Ctrl+E">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📦" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="Extract Script _Raw..." Command="{Binding ExtractScriptRawCommand}">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📜" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="_Import">
+                <MenuItem Header="_Import / Replace File..." Command="{Binding ImportFileCommand}">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📥" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Batch Import / Replace..." Command="{Binding BatchImportCommand}">
+                    <MenuItem.Icon>
+                        <TextBlock Text="📦" FontSize="14"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About" Click="About_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="2" Background="{StaticResource SecondaryBgBrush}" Padding="6,4"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <Button Content="📂 Open" Command="{Binding OpenCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Open an archive or script file (Ctrl+O)"/>
+                    <Button Content="📄 Extract" Command="{Binding ExtractSelectedCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Extract selected file"/>
+                    <Button Content="📦 Batch Extract" Command="{Binding BatchExtractCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Batch extract selected files to folder"/>
+                    <Rectangle Width="1" Fill="{StaticResource BorderBrush}" Margin="6,2"/>
+                    <Button Content="📥 Import" Command="{Binding ImportFileCommand}" Margin="4,0" Padding="10,5"
+                            ToolTip="Replace a file in the archive"/>
+                    <Button Content="📦 Batch Import" Command="{Binding BatchImportCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Batch import/replace selected files from folder"/>
+                    <Rectangle Width="1" Fill="{StaticResource BorderBrush}" Margin="6,2"/>
+                    <Button Content="✏ Edit" Command="{Binding EditScriptEntryCommand}" Margin="4,0,4,0" Padding="10,5"
+                            ToolTip="Edit selected script entry (Enter)"/>
+                    <Button Content="💾 Save" Command="{Binding SaveCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Save script (Ctrl+S)"/>
+                    <Rectangle Width="1" Fill="{StaticResource BorderBrush}" Margin="6,2"/>
+                    <Button Content="📤 Export JSON" Command="{Binding ExportScriptJsonCommand}" Margin="4,0,4,0" Padding="10,5"
+                            ToolTip="Export script text to JSON"/>
+                    <Button Content="📥 Import JSON" Command="{Binding ImportScriptJsonCommand}" Margin="0,0,4,0" Padding="10,5"
+                            ToolTip="Import modified script from JSON and rebuild"/>
+                </StackPanel>
+
+                <!-- Search / Filter -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="🔍" VerticalAlignment="Center" Margin="0,0,4,0" FontSize="14"/>
+                    <TextBox x:Name="FilterBox" Width="200" VerticalAlignment="Center"
+                             Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                             KeyDown="FilterBox_KeyDown"
+                             ToolTip="Filter entries by name, type, or extension">
+                    </TextBox>
+                    <Button Content="✕" Style="{StaticResource FlatButton}" 
+                            Command="{Binding ClearFilterCommand}" Margin="2,0,0,0"
+                            ToolTip="Clear filter"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Breadcrumb Navigation Bar (for nested archives) -->
+        <Border Grid.Row="3" Padding="6,4"
+                Background="{StaticResource TertiaryBgBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                Visibility="{Binding HasBreadcrumb, Converter={StaticResource BoolToVis}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Left" Content="⬅ Back" 
+                        Command="{Binding GoBackCommand}" 
+                        Margin="0,0,8,0" Padding="10,4"
+                        ToolTip="Go back to parent archive (Backspace)"/>
+                <TextBlock VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis">
+                    <Run Text="📦 " FontSize="14"/>
+                    <Run Text="{Binding BreadcrumbText, Mode=OneWay}" 
+                         Foreground="{StaticResource AccentBrush}"/>
+                </TextBlock>
+            </DockPanel>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="150"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="300"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="340" MinWidth="200"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Panel: Folder Tree -->
+            <Border Grid.Column="0" Margin="4" CornerRadius="4"
+                    Background="{StaticResource SecondaryBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{StaticResource TertiaryBgBrush}" Padding="8,6"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="📁 Archive Structure" FontWeight="SemiBold" FontSize="12"/>
+                    </Border>
+                    <TreeView ItemsSource="{Binding FolderTree}" BorderThickness="0" Background="Transparent"
+                              SelectedItemChanged="TreeView_SelectedItemChanged">
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <TextBlock>
+                                    <Run Text="{Binding Icon, Mode=OneWay}"/>
+                                    <Run Text=" "/>
+                                    <Run Text="{Binding Name, Mode=OneWay}"/>
+                                </TextBlock>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="Transparent" Cursor="SizeWE"/>
+
+            <!-- Center Panel: File List / Script View -->
+            <Border Grid.Column="2" Margin="0,4" CornerRadius="4"
+                    Background="{StaticResource SecondaryBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{StaticResource TertiaryBgBrush}" Padding="8,6"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <DockPanel>
+                            <TextBlock Text="{Binding ArchiveInfoText}" FontSize="11" 
+                                       Foreground="{StaticResource TextSecondaryBrush}" DockPanel.Dock="Right"/>
+                            <TextBlock FontWeight="SemiBold" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="📋 Files"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsScriptMode}" Value="True">
+                                                <Setter Property="Text" Value="📜 Script Text"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Overlay container: drop hint, file list, script list all fill remaining space -->
+                    <Grid>
+                    <!-- Drop hint when nothing is loaded -->
+                    <Grid>
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding CurrentArchive}" Value="{x:Null}"/>
+                                            <Condition Binding="{Binding IsScriptMode}" Value="False"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="📂" FontSize="48" HorizontalAlignment="Center" Opacity="0.3"/>
+                            <TextBlock Text="Drop an archive or script here, or use File → Open" 
+                                       FontSize="14" HorizontalAlignment="Center" Opacity="0.5"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,8,0,0"/>
+                            <TextBlock Text="Supported: WAG, ARC, BIN, WVB, GD, XARC, CD, CD3"
+                                       FontSize="11" HorizontalAlignment="Center" Opacity="0.4"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- File List -->
+                    <ListView x:Name="FileListView"
+                              ItemsSource="{Binding FilteredEntries}" 
+                              SelectedItem="{Binding SelectedEntry}"
+                              SelectionMode="Extended"
+                              SelectionChanged="FileListView_SelectionChanged"
+                              Visibility="{Binding CurrentArchive, Converter={StaticResource NullToVis}}"
+                              BorderThickness="0" Background="Transparent"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              MouseDoubleClick="ListView_DoubleClick"
+                              GridViewColumnHeader.Click="GridViewColumnHeader_Click">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Width="60">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Type" Content="Type"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding TypeDisplay}" FontSize="11"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="280">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Name" Content="Name"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding ModifiedDisplay}" FontSize="12" FontWeight="Bold"
+                                                           Foreground="#FFDD57" Margin="0,0,2,0"/>
+                                                <TextBlock Text="{Binding Name}" FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding Name}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="80">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Size" Content="Size"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding SizeDisplay}" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Right"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="60">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Extension" Content="Ext"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Extension}" FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="90">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Offset" Content="Offset"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock FontSize="11" FontFamily="Consolas"
+                                                       Foreground="{StaticResource TextSecondaryBrush}">
+                                                <TextBlock.Text>
+                                                    <Binding Path="Offset" StringFormat="0x{0:X8}"/>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Open" Command="{Binding OpenEntryCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📂" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Extract Selected" Command="{Binding ExtractSelectedCommand}"/>
+                                <MenuItem Header="Batch Extract Selected..." Command="{Binding BatchExtractCommand}"/>
+                                <MenuItem Header="Extract as JSON..." Command="{Binding ExtractEntryAsJsonCommand}"
+                                          Visibility="{Binding IsSelectedEntryScript, Converter={StaticResource BoolToVis}}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📤" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Import / Replace" Command="{Binding ImportFileCommand}"/>
+                                <MenuItem Header="Batch Import / Replace..." Command="{Binding BatchImportCommand}"/>
+                                <MenuItem Header="Import JSON into Script..." Command="{Binding ImportEntryJsonCommand}"
+                                          Visibility="{Binding IsSelectedEntryScript, Converter={StaticResource BoolToVis}}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📥" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                    </ListView>
+
+                    <!-- Script Text List (visible in script mode) -->
+                    <ListView x:Name="ScriptListView"
+                              ItemsSource="{Binding FilteredScriptEntries}"
+                              SelectedItem="{Binding SelectedScriptEntry}"
+                              Visibility="{Binding IsScriptMode, Converter={StaticResource BoolToVis}}"
+                              BorderThickness="0" Background="Transparent"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              MouseDoubleClick="ScriptListView_DoubleClick"
+                              GridViewColumnHeader.Click="GridViewColumnHeader_Click">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Width="50">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Index" Content="#"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Index}" FontSize="11" FontFamily="Consolas"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="70">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="SeqId" Content="Seq ID"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding SeqId}" FontSize="11" FontFamily="Consolas"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="60">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Voice" Content="Voice"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Voice}" FontSize="11" FontFamily="Consolas"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Width="450">
+                                    <GridViewColumn.Header>
+                                        <GridViewColumnHeader Tag="Text" Content="Text"/>
+                                    </GridViewColumn.Header>
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Text}" FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Text}"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                            </GridView>
+                        </ListView.View>
+
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="✏ Edit Entry..." Command="{Binding EditScriptEntryCommand}" InputGestureText="Enter">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="✏" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Export Script to JSON..." Command="{Binding ExportScriptJsonCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📤" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="Import Script from JSON..." Command="{Binding ImportScriptJsonCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📥" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Extract Script Raw..." Command="{Binding ExtractScriptRawCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="📜" FontSize="14"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="💾 Save" Command="{Binding SaveCommand}" InputGestureText="Ctrl+S"/>
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                    </ListView>
+
+                    </Grid> <!-- end overlay container -->
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="Transparent" Cursor="SizeWE"/>
+
+            <!-- Right Panel: Preview -->
+            <Border Grid.Column="4" Margin="4" CornerRadius="4"
+                    Background="{StaticResource SecondaryBgBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{StaticResource TertiaryBgBrush}" Padding="8,6"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="👁 Preview" FontWeight="SemiBold" FontSize="12"/>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="8">
+                            <!-- Entry Info -->
+                            <TextBlock Text="{Binding EntryInfoText}" FontSize="11" FontFamily="Consolas"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Visibility="{Binding EntryInfoText, Converter={StaticResource StringToVis}}"
+                                       Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- Image Preview -->
+                            <Border Visibility="{Binding HasImagePreview, Converter={StaticResource BoolToVis}}"
+                                    Background="#20000000" CornerRadius="4" Padding="4" Margin="0,0,0,8"
+                                    MaxHeight="400">
+                                <Image Source="{Binding PreviewImage}" Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                            </Border>
+
+                            <!-- Text Preview -->
+                            <Border Visibility="{Binding HasTextPreview, Converter={StaticResource BoolToVis}}"
+                                    Background="{StaticResource TertiaryBgBrush}" CornerRadius="4" 
+                                    Padding="8" Margin="0,0,0,8" MaxHeight="300">
+                                <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True"
+                                         FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
+                                         Background="Transparent" BorderThickness="0"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Audio Player -->
+                            <Border Visibility="{Binding IsAudioEntry, Converter={StaticResource BoolToVis}}"
+                                    Background="{StaticResource TertiaryBgBrush}" CornerRadius="6" 
+                                    Padding="12" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <!-- Waveform icon + format info -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                                        <TextBlock Text="🔊" FontSize="24" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding AudioStatusText}" FontSize="11" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- Position slider -->
+                                    <Slider x:Name="AudioSeekSlider" Minimum="0" Maximum="100" 
+                                            Value="{Binding AudioPositionPercent, Mode=OneWay}"
+                                            Margin="0,0,0,4"
+                                            PreviewMouseLeftButtonUp="AudioSeekSlider_MouseUp"
+                                            PreviewMouseLeftButtonDown="AudioSeekSlider_MouseDown"/>
+
+                                    <!-- Time display -->
+                                    <TextBlock Text="{Binding AudioPositionText}" FontSize="11" FontFamily="Consolas"
+                                               HorizontalAlignment="Center" Margin="0,0,0,8"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                                    <!-- Controls -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Button Content="{Binding PlayPauseIcon}" Command="{Binding AudioPlayPauseCommand}"
+                                                FontSize="18" Width="44" Height="44" Padding="0"
+                                                ToolTip="Play / Pause"/>
+                                        <Button Content="⏹" Command="{Binding AudioStopCommand}"
+                                                FontSize="18" Width="44" Height="44" Padding="0" Margin="8,0,0,0"
+                                                ToolTip="Stop"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Video Player -->
+                            <Border Visibility="{Binding IsVideoEntry, Converter={StaticResource BoolToVis}}"
+                                    Background="{StaticResource TertiaryBgBrush}" CornerRadius="6"
+                                    Padding="12" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <!-- Video info -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                                        <TextBlock Text="🎬" FontSize="24" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding VideoStatusText}" FontSize="11" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- VLC VideoView -->
+                                    <Border Background="Black" CornerRadius="4" Margin="0,0,0,8"
+                                            Height="220" ClipToBounds="True">
+                                        <vlc:VideoView x:Name="VlcVideoView"/>
+                                    </Border>
+
+                                    <!-- Position slider -->
+                                    <Slider x:Name="VideoSeekSlider" Minimum="0" Maximum="100"
+                                            Value="{Binding VideoPositionPercent, Mode=OneWay}"
+                                            Margin="0,0,0,4"
+                                            PreviewMouseLeftButtonUp="VideoSeekSlider_MouseUp"
+                                            PreviewMouseLeftButtonDown="VideoSeekSlider_MouseDown"/>
+
+                                    <!-- Time display -->
+                                    <TextBlock Text="{Binding VideoPositionText}" FontSize="11" FontFamily="Consolas"
+                                               HorizontalAlignment="Center" Margin="0,0,0,8"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                                    <!-- Controls -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Button Content="{Binding VideoPlayPauseIcon}" 
+                                                Click="VideoPlayPause_Click"
+                                                FontSize="18" Width="44" Height="44" Padding="0"
+                                                ToolTip="Play / Pause"/>
+                                        <Button Content="⏹" Click="VideoStop_Click"
+                                                FontSize="18" Width="44" Height="44" Padding="0" Margin="8,0,0,0"
+                                                ToolTip="Stop"/>
+                                        <Button Content="📂" Click="VideoOpenExternal_Click"
+                                                FontSize="16" Width="44" Height="44" Padding="0" Margin="8,0,0,0"
+                                                ToolTip="Open in external player"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Hex Preview -->
+                            <Expander Header="Hex View" IsExpanded="False" Foreground="{StaticResource TextSecondaryBrush}"
+                                      Visibility="{Binding HasHexPreview, Converter={StaticResource BoolToVis}}">
+                                <Border Background="{StaticResource TertiaryBgBrush}" CornerRadius="4" 
+                                        Padding="8" MaxHeight="300">
+                                    <TextBox Text="{Binding HexPreview, Mode=OneWay}" IsReadOnly="True"
+                                             FontFamily="Consolas" FontSize="10" TextWrapping="NoWrap"
+                                             Background="Transparent" BorderThickness="0"
+                                             VerticalScrollBarVisibility="Auto"
+                                             HorizontalScrollBarVisibility="Auto"
+                                             Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </Border>
+                            </Expander>
+
+                            <!-- History (shown when selected entry was edited) -->
+                            <Border Visibility="{Binding HasSelectedEntryEdit, Converter={StaticResource BoolToVis}}"
+                                    Margin="0,8,0,8">
+                                <Border Background="{StaticResource TertiaryBgBrush}" CornerRadius="4" Padding="0">
+                                    <DockPanel>
+                                        <!-- Header -->
+                                        <Border DockPanel.Dock="Top" Padding="8,6"
+                                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                                            <TextBlock Text="📝 History  (click to rollback)" FontWeight="SemiBold" FontSize="11"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Border>
+
+                                        <!-- Edit history list for this entry -->
+                                        <ListBox x:Name="HistoryListBox"
+                                                 ItemsSource="{Binding SelectedEntryEditRecords}"
+                                                 MaxHeight="250"
+                                                 BorderThickness="0" Background="Transparent"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 MouseDoubleClick="HistoryListBox_DoubleClick">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="4,4">
+                                                        <StackPanel>
+                                                            <TextBlock FontSize="10" FontFamily="Consolas"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       Margin="0,0,0,2">
+                                                                <Run Text="{Binding Timestamp, StringFormat='HH:mm:ss', Mode=OneWay}"/>
+                                                            </TextBlock>
+                                                            <TextBlock Text="{Binding OldText}" FontSize="11" FontFamily="Consolas"
+                                                                       TextWrapping="Wrap" Foreground="#FFFFA0A0"
+                                                                       MaxHeight="60" TextTrimming="CharacterEllipsis">
+                                                                <TextBlock.ToolTip>
+                                                                    <TextBlock Text="{Binding OldTextPreview}" TextWrapping="Wrap" MaxWidth="400"/>
+                                                                </TextBlock.ToolTip>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </DockPanel>
+                                </Border>
+                            </Border>
+
+                            <!-- No selection message -->
+                            <TextBlock Text="Select an entry to preview" 
+                                       Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}, ConverterParameter=invert}"
+                                       HorizontalAlignment="Center" Margin="0,40,0,0"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Opacity="0.5"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Progress Bar -->
+        <ProgressBar Grid.Row="5" Value="{Binding ProgressValue}" Height="3"
+                     Visibility="{Binding IsProgressVisible, Converter={StaticResource BoolToVis}}"/>
+
+        <!-- Status Bar -->
+        <StatusBar Grid.Row="6">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusText}" FontSize="11"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

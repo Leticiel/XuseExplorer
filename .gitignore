@@ -1,0 +1,11 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Tt]est/
+
+# Visual Studio temporary files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
