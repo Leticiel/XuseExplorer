@@ -10,11 +10,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- Exclude test data from compilation -->
-  <ItemGroup>
-    <Compile Remove="Test\**" />
-  </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="LibVLCSharp.WPF" Version="3.9.3" />
     <PackageReference Include="NAudio" Version="2.2.1" />
