@@ -11,6 +11,8 @@ namespace XuseExplorer.Core.Formats
         public string Description => "Xuse audio archive (DAT)";
         public string[] Extensions => new[] { ".dat" };
 
+        public bool CanImport => true;
+
         private const int ENTRY_SIZE = 16;
         private const int ALIGNMENT = 2048;
 
@@ -157,6 +159,104 @@ namespace XuseExplorer.Core.Formats
             finally
             {
                 if (ownsStream) stream.Dispose();
+            }
+        }
+
+        public void ImportEntry(ArchiveFile archive, ArchiveEntry entry, byte[] newData, Stream originalStream, Stream outputStream)
+        {
+            var reader = new BinaryReaderEx(originalStream);
+            long originalLength = originalStream.Length;
+
+            var rawEntries = new List<(uint unk1, uint size, uint offset, uint unk2)>();
+            int maxEntries = (int)Math.Min(originalLength / ENTRY_SIZE, 100000);
+
+            for (int i = 0; i < maxEntries; i++)
+            {
+                int pos = i * ENTRY_SIZE;
+                if (pos + ENTRY_SIZE > originalLength) break;
+
+                uint unk1 = reader.ReadUInt32(pos);
+                uint size = reader.ReadUInt32(pos + 4);
+                uint offset = reader.ReadUInt32(pos + 8);
+                uint unk2 = reader.ReadUInt32(pos + 12);
+
+                if (size == 0) break;
+
+                rawEntries.Add((unk1, size, offset, unk2));
+            }
+
+            if (rawEntries.Count == 0)
+                throw new InvalidOperationException("No entries found in the DAT archive.");
+
+            int targetIndex = -1;
+            for (int i = 0; i < rawEntries.Count; i++)
+            {
+                if (rawEntries[i].offset == (uint)entry.Offset && rawEntries[i].size == entry.Size)
+                {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            if (targetIndex < 0)
+                throw new InvalidOperationException("Could not find the target entry in the DAT archive.");
+
+            int indexEnd = rawEntries.Count * ENTRY_SIZE;
+            int dataBlockStart;
+            uint origFirstOffset = rawEntries[0].offset;
+
+            int align2048 = ((indexEnd + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+            int align4096 = ((indexEnd + 4095) / 4096) * 4096;
+
+            if (origFirstOffset == (uint)(align2048 + 4))
+                dataBlockStart = align2048;
+            else if (origFirstOffset == (uint)(align4096 + 4))
+                dataBlockStart = align4096;
+            else
+                dataBlockStart = align2048; // fallback
+
+            var newSizes = new uint[rawEntries.Count];
+            for (int i = 0; i < rawEntries.Count; i++)
+                newSizes[i] = rawEntries[i].size;
+            newSizes[targetIndex] = (uint)newData.Length;
+
+            var newOffsets = new uint[rawEntries.Count];
+            uint currentOffset = (uint)(dataBlockStart + 4);
+            for (int i = 0; i < rawEntries.Count; i++)
+            {
+                newOffsets[i] = currentOffset;
+                currentOffset += newSizes[i];
+            }
+
+            for (int i = 0; i < rawEntries.Count; i++)
+            {
+                outputStream.Write(BitConverter.GetBytes(rawEntries[i].unk1), 0, 4);
+                outputStream.Write(BitConverter.GetBytes(newSizes[i]), 0, 4);
+                outputStream.Write(BitConverter.GetBytes(newOffsets[i]), 0, 4);
+                outputStream.Write(BitConverter.GetBytes(rawEntries[i].unk2), 0, 4);
+            }
+
+            long paddingNeeded = dataBlockStart - (rawEntries.Count * ENTRY_SIZE);
+            if (paddingNeeded > 0)
+            {
+                var zeros = new byte[paddingNeeded];
+                outputStream.Write(zeros, 0, zeros.Length);
+            }
+
+            byte[] marker = reader.ReadBytes(dataBlockStart, 4);
+            outputStream.Write(marker, 0, 4);
+
+            for (int i = 0; i < rawEntries.Count; i++)
+            {
+                if (i == targetIndex)
+                {
+                    outputStream.Write(newData, 0, newData.Length);
+                }
+                else
+                {
+                    byte[] data = reader.ReadBytes(rawEntries[i].offset, (int)rawEntries[i].size);
+                    outputStream.Write(data, 0, data.Length);
+                }
             }
         }
     }

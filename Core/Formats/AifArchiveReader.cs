@@ -11,6 +11,8 @@ namespace XuseExplorer.Core.Formats
         public string Description => "Xuse image archive (AIF)";
         public string[] Extensions => new[] { ".aif" };
 
+        public bool CanImport => true;
+
         private const uint ENTRY_OPCODE = 0x10;
         private const int ENTRY_SIZE = 32;
 
@@ -118,6 +120,89 @@ namespace XuseExplorer.Core.Formats
             finally
             {
                 if (ownsStream) stream.Dispose();
+            }
+        }
+
+        public void ImportEntry(ArchiveFile archive, ArchiveEntry entry, byte[] newData, Stream originalStream, Stream outputStream)
+        {
+            var reader = new BinaryReaderEx(originalStream);
+
+            uint firstOffset = reader.ReadUInt32(4);
+            int count = (int)(firstOffset / ENTRY_SIZE);
+
+            var opcodes = new uint[count];
+            var offsets = new uint[count];
+            var sizes = new uint[count];
+            var extras = new byte[count][];
+
+            for (int i = 0; i < count; i++)
+            {
+                int pos = i * ENTRY_SIZE;
+                opcodes[i] = reader.ReadUInt32(pos);
+                offsets[i] = reader.ReadUInt32(pos + 4);
+                sizes[i] = reader.ReadUInt32(pos + 8);
+                extras[i] = reader.ReadBytes(pos + 12, ENTRY_SIZE - 12);
+            }
+
+            int targetIndex = -1;
+            for (int i = 0; i < count; i++)
+            {
+                if (offsets[i] == (uint)entry.Offset && sizes[i] == entry.Size)
+                {
+                    targetIndex = i;
+                    break;
+                }
+            }
+
+            if (targetIndex < 0)
+                throw new InvalidOperationException("Could not find the target entry in the AIF archive.");
+
+            var newSizes = new uint[count];
+            Array.Copy(sizes, newSizes, count);
+            newSizes[targetIndex] = (uint)newData.Length;
+
+            uint dataStart = (uint)(count * ENTRY_SIZE);
+            var newOffsets = new uint[count];
+            uint currentOffset = dataStart;
+
+            var sortedIndices = new int[count];
+            for (int i = 0; i < count; i++) sortedIndices[i] = i;
+            Array.Sort(sortedIndices, (a, b) => offsets[a].CompareTo(offsets[b]));
+
+            var offsetMap = new Dictionary<int, uint>();
+            foreach (int idx in sortedIndices)
+            {
+                if (sizes[idx] == 0 && offsets[idx] == 0)
+                {
+                    offsetMap[idx] = 0;
+                    continue;
+                }
+                offsetMap[idx] = currentOffset;
+                currentOffset += newSizes[idx];
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                outputStream.Write(BitConverter.GetBytes(opcodes[i]), 0, 4);
+                outputStream.Write(BitConverter.GetBytes(offsetMap[i]), 0, 4);
+                outputStream.Write(BitConverter.GetBytes(newSizes[i]), 0, 4);
+                outputStream.Write(extras[i], 0, extras[i].Length);
+            }
+
+            foreach (int idx in sortedIndices)
+            {
+                if (sizes[idx] == 0 && offsets[idx] == 0)
+                    continue;
+
+                if (idx == targetIndex)
+                {
+                    outputStream.Write(newData, 0, newData.Length);
+                }
+                else
+                {
+                    byte[] data = reader.ReadBytes(offsets[idx], (int)sizes[idx]);
+                    outputStream.Write(data, 0, data.Length);
+                }
             }
         }
     }
