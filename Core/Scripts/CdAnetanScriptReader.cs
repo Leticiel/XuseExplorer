@@ -11,7 +11,7 @@ namespace XuseExplorer.Core.Scripts
     public class CdAnetanScriptReader : IScriptReader
     {
         public string Tag => "CD/Anetan";
-        public string Description => "Xuse CD script file (Anetan variant)";
+        public string Description => "Xuse CD script file (Anetan Spirits)";
         public string[] Extensions => new[] { ".cd" };
 
         private static readonly Encoding ShiftJis = Encoding.GetEncoding(932);
