@@ -179,6 +179,12 @@ namespace XuseExplorer.Core.Scripts
                     HasText = TextOpcodes.Contains(cmd)
                 };
 
+                // Always populate ThirdOffset for 0x46 (TextHypLnkFB)
+                if (cmd == 0x46)
+                {
+                    inst.ThirdOffset = (int)BitConverter.ToUInt32(secondData, pos + 4);
+                }
+
                 if (inst.HasText)
                 {
                     if (cmd == 0x40 || cmd == 0x41)
@@ -244,8 +250,25 @@ namespace XuseExplorer.Core.Scripts
             var entries = new List<ScriptEntry>();
             int cmdIndex = 0;
 
+            (int line, int start, int length)? pendingHyperlink = null;
+
             foreach (var inst in instructions)
             {
+                if (inst.Cmd == 0x46)
+                {
+                    try
+                    {
+                        int pos = inst.ThirdOffset;
+                        ushort hlLine = BitConverter.ToUInt16(cd.ThirdData, pos);
+                        ushort hlStart = BitConverter.ToUInt16(cd.ThirdData, pos + 2);
+                        ushort hlLength = BitConverter.ToUInt16(cd.ThirdData, pos + 4);
+                        pendingHyperlink = (hlLine, hlStart, hlLength);
+                    }
+                    catch { }
+                    cmdIndex++;
+                    continue;
+                }
+
                 if (!inst.HasText) { cmdIndex++; continue; }
 
                 var texts = new List<string>();
@@ -257,6 +280,11 @@ namespace XuseExplorer.Core.Scripts
                         case 0x40:
                         case 0x41:
                             texts = ExtractShowText(inst, cd.ThirdData);
+                            if (pendingHyperlink.HasValue)
+                            {
+                                texts = InjectHyperlinkTags(texts, inst.A0, pendingHyperlink.Value);
+                                pendingHyperlink = null;
+                            }
                             break;
                         case 0x44:
                             texts = ExtractTextRbFS(inst, cd.ThirdData);
@@ -300,6 +328,63 @@ namespace XuseExplorer.Core.Scripts
             }
 
             return entries;
+        }
+
+        private static List<string> InjectHyperlinkTags(List<string> texts, ushort a0, (int line, int start, int length) hl)
+        {
+            int textStartIdx = (a0 == 0x13 && texts.Count > 1) ? 1 : 0;
+            var bodyLines = texts.Skip(textStartIdx).ToList();
+
+            int lineIdx = hl.line - 1;
+            if (lineIdx >= 0 && lineIdx < bodyLines.Count)
+            {
+                string target = bodyLines[lineIdx];
+                int charStart = hl.start - 1; 
+                if (charStart >= 0 && charStart + hl.length <= target.Length)
+                {
+                    bodyLines[lineIdx] = target.Substring(0, charStart)
+                        + "<h>" + target.Substring(charStart, hl.length) + "</h>"
+                        + target.Substring(charStart + hl.length);
+                }
+            }
+
+            var result = new List<string>();
+            for (int i = 0; i < textStartIdx; i++)
+                result.Add(texts[i]);
+            result.AddRange(bodyLines);
+            return result;
+        }
+
+        private static (string cleanText, int hlLine, int hlStart, int hlLength) ExtractAndRemoveHighlight(string text)
+        {
+            bool hasPrefix = text.StartsWith("^");
+            var lines = text.Split('\n').ToList();
+            int hlLine = -1, hlStart = -1, hlLength = -1;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                int idxStart = lines[i].IndexOf("<h>");
+                int idxEnd = lines[i].IndexOf("</h>");
+
+                if (idxStart != -1 && idxEnd != -1 && idxEnd > idxStart)
+                {
+                    hlLine = i + 1;
+
+                    if (i == 0 && hasPrefix)
+                        hlStart = idxStart;
+                    else
+                        hlStart = idxStart + 1; 
+
+                    hlLength = idxEnd - (idxStart + 3); 
+
+                    lines[i] = lines[i].Substring(0, idxStart)
+                        + lines[i].Substring(idxStart + 3, hlLength)
+                        + lines[i].Substring(idxEnd + 4);
+                    break;
+                }
+            }
+
+            return (string.Join("\n", lines), hlLine, hlStart, hlLength);
         }
 
         private static List<string> ExtractShowText(Instruction inst, byte[] thirdData)
@@ -414,13 +499,42 @@ namespace XuseExplorer.Core.Scripts
             using var newThirdMs = new MemoryStream();
             var offsetRemap = new Dictionary<int, int>();
 
+            // Track last 0x46 position in newThird for hyperlink patching
+            int last0x46ThirdPos = -1;
+
             foreach (var (idx, cmd, trdPos, inst) in thirdRefs)
             {
                 int newOff = (int)newThirdMs.Position;
                 offsetRemap[idx] = newOff;
 
+                if (cmd == 0x46)
+                    last0x46ThirdPos = newOff;
+
                 if (patchMap.TryGetValue(idx, out var newStrings))
                 {
+                    // For 0x40/0x41, check for <h> tags and patch preceding 0x46
+                    if ((cmd == 0x40 || cmd == 0x41) && last0x46ThirdPos >= 0)
+                    {
+                        string fullText = string.Join("\n", newStrings);
+                        if (fullText.Contains("<h>") && fullText.Contains("</h>"))
+                        {
+                            var (cleanText, hlLine, hlStart, hlLength) = ExtractAndRemoveHighlight(fullText);
+                            newStrings = cleanText.Split('\n');
+
+                            if (hlLine > 0)
+                            {
+                                long savedPos = newThirdMs.Position;
+                                newThirdMs.Position = last0x46ThirdPos;
+                                newThirdMs.Write(BitConverter.GetBytes((ushort)hlLine), 0, 2);
+                                newThirdMs.Write(BitConverter.GetBytes((ushort)hlStart), 0, 2);
+                                newThirdMs.Write(BitConverter.GetBytes((ushort)hlLength), 0, 2);
+                                newThirdMs.Position = savedPos;
+                            }
+
+                            last0x46ThirdPos = -1;
+                        }
+                    }
+
                     RebuildThirdEntry(cmd, inst, trdPos, thirdData, secondData, newStrings, newThirdMs, instructions);
                 }
                 else

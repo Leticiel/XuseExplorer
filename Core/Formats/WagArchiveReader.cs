@@ -330,11 +330,16 @@ namespace XuseExplorer.Core.Formats
 
                 byte[] newEncData = (byte[])decData.Clone();
                 Decrypt(currentOffset, dataKey, newEncData);
-
                 if (version == 0x300)
-                    FixDsetCrcs(newEncData, decData);
-
+                {
+                    bool is4ag = archive.FilePath.EndsWith(".4ag", StringComparison.OrdinalIgnoreCase);
+                    if (is4ag)
+                        FixDsetCrcs4ag(newEncData, decData);
+                    else
+                        FixDsetCrcs004(newEncData, decData);
+                }
                 newEntryDataList[i] = newEncData;
+
                 currentOffset += (uint)decData.Length;
             }
 
@@ -388,8 +393,7 @@ namespace XuseExplorer.Core.Formats
             int chunkCount = BitConverter.ToInt32(decData, 4);
 
             using var ms = new MemoryStream();
-            ms.Write(decData, 0, 8);
-            ms.Write(new byte[2], 0, 2);
+            ms.Write(decData, 0, 10);
 
             int offset = 10;
             for (int c = 0; c < chunkCount; c++)
@@ -404,18 +408,21 @@ namespace XuseExplorer.Core.Formats
 
                 if (isPICT && size >= 6)
                 {
-                    byte[] pictParams = new byte[4];
-                    if (offset + 10 + 4 <= decData.Length)
-                        Array.Copy(decData, offset + 10, pictParams, 0, 4);
+                    byte[] pictInner = new byte[6];
+                    if (offset + 10 + 6 <= decData.Length)
+                        Array.Copy(decData, offset + 10, pictInner, 0, 6);
 
-                    int newSize = 4 + 2 + newData.Length;
+                    int newSize = 6 + newData.Length;
 
-                    ms.Write(magic, 0, 4);
-                    ms.Write(BitConverter.GetBytes(newSize), 0, 4);
-                    ms.Write(new byte[2], 0, 2);
+                    byte[] chunkHeader = new byte[8];
+                    Array.Copy(magic, 0, chunkHeader, 0, 4);
+                    Array.Copy(BitConverter.GetBytes(newSize), 0, chunkHeader, 4, 4);
+                    byte[] chunkCrc = XuseCrc16.ComputeCcittStoredCrcBytes(chunkHeader, 0, 8);
 
-                    ms.Write(pictParams, 0, 4);
-                    ms.Write(new byte[2], 0, 2);
+                    ms.Write(chunkHeader, 0, 8);
+                    ms.Write(chunkCrc, 0, 2);
+
+                    ms.Write(pictInner, 0, 6);
                     ms.Write(newData, 0, newData.Length);
                 }
                 else
@@ -437,7 +444,7 @@ namespace XuseExplorer.Core.Formats
             return ms.ToArray();
         }
 
-        private static void FixDsetCrcs(byte[] encData, byte[] decData)
+        private static void FixDsetCrcs4ag(byte[] encData, byte[] decData)
         {
             if (decData.Length < 10) return;
 
@@ -467,6 +474,31 @@ namespace XuseExplorer.Core.Formats
                     encData[offset + 14] = pictCrc[0];
                     encData[offset + 15] = pictCrc[1];
                 }
+
+                offset += 10 + size;
+            }
+        }
+
+        private static void FixDsetCrcs004(byte[] encData, byte[] decData)
+        {
+            if (decData.Length < 10) return;
+
+            int chunkCount = BitConverter.ToInt32(decData, 4);
+
+            byte[] dsetCrc = XuseCrc16.ComputeCcittStoredCrcBytes(encData, 0, 8);
+            encData[8] = dsetCrc[0];
+            encData[9] = dsetCrc[1];
+
+            int offset = 10;
+            for (int c = 0; c < chunkCount; c++)
+            {
+                if (offset + 10 > decData.Length) break;
+
+                int size = BitConverter.ToInt32(decData, offset + 4);
+
+                byte[] chunkCrc = XuseCrc16.ComputeCcittStoredCrcBytes(encData, offset, 8);
+                encData[offset + 8] = chunkCrc[0];
+                encData[offset + 9] = chunkCrc[1];
 
                 offset += 10 + size;
             }
@@ -547,11 +579,7 @@ namespace XuseExplorer.Core.Formats
             string ext = Path.GetExtension(name).ToLowerInvariant();
             return ext switch
             {
-                ".png" or ".bmp" or ".jpg" or ".jpeg" or ".gif" or ".tga" => "image",
-                ".wav" or ".ogg" or ".mp3" or ".mid" => "audio",
-                ".txt" or ".csv" or ".ini" or ".cfg" => "script",
-                ".avi" or ".mpg" or ".mp4" or ".wmv" => "video",
-                _ => "unknown"
+                ".png" or ".bmp" => "image"
             };
         }
     }

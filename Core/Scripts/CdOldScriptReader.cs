@@ -9,7 +9,7 @@ namespace XuseExplorer.Core.Scripts
 {
     public class CdOldScriptReader : IScriptReader
     {
-        public string Tag => "CDold/Xuse";
+        public string Tag => "Old CD/Xuse";
         public string Description => "Xuse old CD script file";
         public string[] Extensions => new[] { ".cd" };
 

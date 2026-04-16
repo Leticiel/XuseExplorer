@@ -194,8 +194,22 @@ namespace XuseExplorer.Core.Formats
             int gapToFirstBlock = (int)(originalOffsets[0] - offsetTableEnd);
             if (gapToFirstBlock > 0)
             {
-                byte[] gap = reader.ReadBytes(offsetTableEnd, gapToFirstBlock);
-                outputStream.Write(gap, 0, gap.Length);
+                using var headerMs = new MemoryStream();
+                headerMs.Write(header, 0, header.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    byte[] ob = BitConverter.GetBytes(newOffsets[i]);
+                    headerMs.Write(ob, 0, 4);
+                }
+                byte[] headerRegion = headerMs.ToArray();
+                byte[] gapCrc = XuseCrc16.ComputeStoredCrcBytes(headerRegion);
+                outputStream.Write(gapCrc, 0, gapCrc.Length);
+
+                if (gapToFirstBlock > 2)
+                {
+                    byte[] extraGap = reader.ReadBytes(offsetTableEnd + 2, gapToFirstBlock - 2);
+                    outputStream.Write(extraGap, 0, extraGap.Length);
+                }
             }
 
             for (int i = 0; i < count; i++)
